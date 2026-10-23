@@ -121,6 +121,9 @@ export default function Toolbar() {
     if (!design) return;
     setUi({ isOptimizing: true, error: null });
     try {
+      if (!analysis) {
+        analyze(design).then(setAnalysis).catch(() => {});
+      }
       const result = await optimize(design);
       setOptimizeResult(result);
 
@@ -286,7 +289,7 @@ export default function Toolbar() {
           type="button"
           className="btn btn-secondary h-7 px-3 text-xs"
           onClick={handleOptimize}
-          disabled={!design || !analysis || isOptimizing}
+          disabled={!design || isOptimizing}
           title="Optimize isolator mounts to dampen resonance"
         >
           {isOptimizing ? (

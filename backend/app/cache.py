@@ -14,12 +14,17 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 def canonical_design_dict(design: Any) -> Dict[str, Any]:
     """Extract canonical design dictionary stripping UI attributes and empty fields."""
+    if design is None:
+        return {}
     if hasattr(design, "model_dump"):
         data = design.model_dump()
     elif isinstance(design, dict):
         data = copy.deepcopy(design)
     else:
-        data = copy.deepcopy(vars(design))
+        try:
+            data = copy.deepcopy(vars(design))
+        except TypeError:
+            return {}
 
     def _clean(obj: Any) -> Any:
         if isinstance(obj, dict):

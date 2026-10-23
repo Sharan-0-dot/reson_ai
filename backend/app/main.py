@@ -482,8 +482,8 @@ def agent_chat_endpoint(req: AgentChatRequest) -> AgentChatResponse:
 @app.get("/agent/health", response_model=AgentHealthResponse)
 def agent_health_endpoint() -> AgentHealthResponse:
     """Check if LLM provider key and model are configured (booleans only, never exposes keys)."""
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model = os.getenv("GEMINI_MODEL", "").strip()
+    api_key = (os.getenv("OPENROUTER_API_KEY") or os.getenv("GEMINI_API_KEY", "")).strip()
+    model = (os.getenv("OPENROUTER_MODEL") or os.getenv("GEMINI_MODEL", "")).strip()
     return AgentHealthResponse(
         configured=bool(api_key),
         model_configured=bool(model),

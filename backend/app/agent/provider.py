@@ -193,6 +193,7 @@ class OpenRouterLLM:
             "messages": openai_messages,
             "response_format": {"type": "json_object"},
             "temperature": 0.2,
+            "max_tokens": 1500,
         }
 
         for attempt in range(2):
