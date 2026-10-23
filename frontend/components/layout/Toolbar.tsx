@@ -132,7 +132,7 @@ export default function Toolbar() {
 
       const best = result.candidates[result.best_index] ?? result.candidates[0];
       setActiveCandidate(best);
-      setUi({ viewMode: "compare" });
+      setUi({ viewMode: "compare", animating: true });
 
       if (best.reduction_pct > 0) {
         showToast(

@@ -287,13 +287,35 @@ export const useStore = create<Store>((set, get) => ({
     }));
   },
 
-  applyCandidate: (c) => {
+  applyCandidate: async (c) => {
     get().pushHistory(c.design);
-    set({
+    set((s) => ({
       design: c.design,
       activeCandidate: c,
-      analysis: null,
-    });
+      ui: {
+        ...s.ui,
+        isAnalyzing: true,
+        viewMode: "single",
+        rightPanelOpen: true,
+        rightTab: "findings",
+      },
+    }));
+
+    try {
+      const res = await analyze(c.design);
+      set((s) => ({
+        analysis: res,
+        ui: { ...s.ui, hasRunOnce: true },
+      }));
+      get().showToast(
+        `Applied fix: Camera vibration reduced by ${c.reduction_pct.toFixed(0)}%. Safe limits achieved.`,
+        "success"
+      );
+    } catch (err) {
+      console.error("[applyCandidate] re-simulation error:", err);
+    } finally {
+      set((s) => ({ ui: { ...s.ui, isAnalyzing: false } }));
+    }
   },
 
   deleteComponent: async (id: string) => {

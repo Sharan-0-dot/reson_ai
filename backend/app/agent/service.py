@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from app.agent.fallback import fallback_chat, template_explanation
 from app.agent.ops import OpError, apply_ops, describe_op
 from app.agent.prompts import build_messages, build_system_prompt, compact_design
-from app.agent.provider import GeminiLLM, LLMError, get_llm
+from app.agent.provider import GeminiLLM, OpenRouterLLM, LLMError, get_llm
 from app.cache import canonical_design_dict
 from app.schemas import AgentChatRequest, AgentChatResponse, ChatMessage
 
@@ -192,7 +192,7 @@ def handle_chat(
             input_numbers.update(_extract_all_numbers(candidates))
 
     # Rate limiting: enforce minimum 1 second spacing between live LLM calls
-    if isinstance(client, GeminiLLM):
+    if isinstance(client, (GeminiLLM, OpenRouterLLM)):
         with _rate_limit_lock:
             now = time.perf_counter()
             elapsed = now - _last_live_call_time

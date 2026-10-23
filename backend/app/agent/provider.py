@@ -9,7 +9,7 @@ Security rules:
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 import httpx
 from dotenv import load_dotenv
 
@@ -131,6 +131,111 @@ class GeminiLLM:
         raise LLMError(f"LLM call failed across all candidate models: {last_error}")
 
 
-def get_llm() -> GeminiLLM:
-    """Factory returning configured LLM client."""
+class OpenRouterLLM:
+    """Client for OpenRouter API using OpenAI-compatible chat completions with structured JSON output."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        timeout_s: Optional[float] = None,
+    ):
+        self.api_key = (
+            api_key
+            or os.getenv("OPENROUTER_API_KEY")
+            or os.getenv("GEMINI_API_KEY", "")
+        )
+        raw_model = (
+            model
+            or os.getenv("OPENROUTER_MODEL")
+            or os.getenv("GEMINI_MODEL", "google/gemini-2.5-flash")
+        )
+        # Normalize model name if user provided shorthand like 'gemini-2.5-flash'
+        if "/" not in raw_model and "gemini" in raw_model:
+            raw_model = f"google/{raw_model}"
+        self.model = raw_model
+
+        timeout_val = timeout_s or os.getenv("LLM_TIMEOUT_S", "25")
+        try:
+            self.timeout_s = float(timeout_val)
+        except ValueError:
+            self.timeout_s = 25.0
+
+    def chat_json(
+        self,
+        system: str,
+        messages: List[Dict[str, str]],
+    ) -> Dict[str, Any]:
+        """Send chat messages to OpenRouter and return parsed JSON dictionary."""
+        if not self.api_key:
+            raise LLMError("OpenRouter API key is not configured in backend/.env")
+        if not self.model:
+            raise LLMError("OpenRouter model is not configured in backend/.env")
+
+        url = "https://openrouter.ai/api/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "ResonAI",
+        }
+
+        openai_messages = [{"role": "system", "content": system}]
+        for msg in messages:
+            role = "assistant" if msg.get("role") in ("assistant", "model") else "user"
+            openai_messages.append({
+                "role": role,
+                "content": str(msg.get("content", "")),
+            })
+
+        body = {
+            "model": self.model,
+            "messages": openai_messages,
+            "response_format": {"type": "json_object"},
+            "temperature": 0.2,
+        }
+
+        for attempt in range(2):
+            try:
+                with httpx.Client(timeout=self.timeout_s) as client:
+                    resp = client.post(url, headers=headers, json=body)
+
+                if resp.status_code == 200:
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        raise LLMError("OpenRouter returned no choices in response")
+
+                    raw_text = choices[0].get("message", {}).get("content", "").strip()
+                    try:
+                        return json.loads(raw_text)
+                    except json.JSONDecodeError as jde:
+                        raise LLMError(f"Failed to parse LLM response as JSON: {jde}") from jde
+
+                status = resp.status_code
+                if status in (401, 403):
+                    raise LLMError("OpenRouter API 401/403: Invalid or unauthorized API key.")
+                elif status == 429:
+                    raise LLMError("OpenRouter API 429: Rate limit exceeded or credit limit reached.")
+                elif status == 400:
+                    raise LLMError(f"OpenRouter API 400: Bad request. Response: {resp.text[:120]}")
+                else:
+                    raise LLMError(f"OpenRouter API failed with HTTP {status}: {resp.text[:120]}")
+
+            except httpx.RequestError as exc:
+                if attempt == 0:
+                    continue
+                raise LLMError(f"Network error communicating with OpenRouter: {type(exc).__name__}") from exc
+            except LLMError:
+                raise
+
+        raise LLMError("OpenRouter call failed after retry")
+
+
+def get_llm() -> Union[GeminiLLM, OpenRouterLLM]:
+    """Factory returning configured LLM client (auto-detects Gemini vs OpenRouter)."""
+    provider = os.getenv("LLM_PROVIDER", "").lower()
+    key = os.getenv("OPENROUTER_API_KEY", "") or os.getenv("GEMINI_API_KEY", "")
+    if provider == "openrouter" or key.startswith("sk-or-"):
+        return OpenRouterLLM()
     return GeminiLLM()

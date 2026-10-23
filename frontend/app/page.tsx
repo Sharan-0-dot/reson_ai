@@ -170,7 +170,7 @@ export default function HomePage() {
                   <div className="relative flex flex-1">
                     {/* Left viewport: original design */}
                     <div className="relative flex-1 border-r border-line">
-                      <ViewportBadge tone="danger">Original Design</ViewportBadge>
+                      <ViewportBadge tone="danger">Original Design • High Vibration</ViewportBadge>
                       <ErrorBoundary fallbackTitle="Original Viewport Recovery">
                         <SceneRoot sharedMaxAmp={sharedMaxAmp} />
                       </ErrorBoundary>
@@ -179,7 +179,10 @@ export default function HomePage() {
                     {/* Right viewport: optimized candidate */}
                     <div className="relative flex-1">
                       <ViewportBadge tone="ok">
-                        Optimized Candidate #{activeCandidate?.rank ?? 1}
+                        Optimized #{activeCandidate?.rank ?? 1} •{" "}
+                        {activeCandidate?.reduction_pct
+                          ? `−${activeCandidate.reduction_pct.toFixed(0)}% Vibration`
+                          : "Tuned Mounts"}
                       </ViewportBadge>
                       <ErrorBoundary fallbackTitle="Optimized Viewport Recovery">
                         <SceneRoot

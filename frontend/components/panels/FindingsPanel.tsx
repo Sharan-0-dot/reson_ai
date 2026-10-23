@@ -197,6 +197,12 @@ export default function FindingsPanel() {
   // Group info-level items under one collapsed "Other notes"
   const infoFindings = analysis.findings.filter((f) => f.severity === "info");
 
+  // Check if sensitive components are protected within their limits
+  const sensitiveComponents = analysis.components.filter((c) => c.limit_g != null);
+  const allSensitiveSafe =
+    sensitiveComponents.length > 0 &&
+    sensitiveComponents.every((c) => c.peak_accel_g <= (c.limit_g ?? 0.5));
+
   const handleAskCopilot = (f: Finding) => {
     setUi({ rightTab: "copilot", rightPanelOpen: true });
     addChatMessage({
@@ -207,6 +213,18 @@ export default function FindingsPanel() {
 
   return (
     <div className="h-full overflow-y-auto p-3 space-y-3">
+      {allSensitiveSafe && (
+        <div className="rounded-md border border-ok/30 bg-ok-soft p-2.5 text-xs text-ink space-y-1">
+          <div className="flex items-center gap-1.5 font-semibold text-ok">
+            <CheckCircle2 size={14} className="shrink-0" />
+            <span>Sensitive Components Protected</span>
+          </div>
+          <p className="text-[11px] text-ink-2 leading-relaxed">
+            All sensitive payloads (camera & sensor mounts) are safely isolated below their G-limits across operating speeds.
+          </p>
+        </div>
+      )}
+
       {actionableFindings.length === 0 && infoFindings.length === 0 ? (
         <div className="flex h-full flex-col items-center justify-center p-6 text-center text-xs text-ok">
           <CheckCircle2 size={24} className="mb-2" />
@@ -225,6 +243,20 @@ export default function FindingsPanel() {
               onAskCopilot={() => handleAskCopilot(f)}
             />
           ))}
+
+          {/* Educational engineering guide note */}
+          <div className="rounded-md border border-line bg-panel/50 p-2.5 text-[11px] text-muted space-y-1 mt-3">
+            <span className="font-semibold text-ink flex items-center gap-1">
+              <Info size={12} className="text-accent shrink-0" />
+              Understanding Findings
+            </span>
+            <p className="leading-relaxed">
+              <strong>Limit Exceeded:</strong> Payload exceeds safe vibration limit. Solved by tuning mount isolators (Auto-fix).
+            </p>
+            <p className="leading-relaxed">
+              <strong>Resonance:</strong> Motor RPM crosses frame natural modes. Isolator mounts protect payload sensors from this vibration; to shift the frame modes themselves, stiffen structural members in the Model tree.
+            </p>
+          </div>
 
           {/* Grouped info items: Collapsed "Other notes" */}
           {infoFindings.length > 0 && (

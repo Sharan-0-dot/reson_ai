@@ -20,6 +20,7 @@ interface Props {
   restLength?: number;
   relDisp?: number;
   preset?: MountPreset;
+  kv?: number;
   position: [number, number, number];
 }
 
@@ -27,6 +28,7 @@ function MountSpringInternal({
   restLength = 0.012,
   relDisp = 0,
   preset = "rubber_medium",
+  kv,
   position,
 }: Props) {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -58,9 +60,14 @@ function MountSpringInternal({
     meshRef.current.scale.y = scale;
   });
 
-  const isSpring = preset === "steel_spring" || preset === "wire_rope";
-  const isSilicone = preset === "silicone_gel";
-  const color = PRESET_COLORS[preset] ?? PRESET_COLORS.custom;
+  // Visually adapt spring appearance based on actual stiffness if available
+  const isSilicone = kv != null ? kv < 15_000 : preset === "silicone_gel";
+  const isSpring = kv != null ? kv >= 80_000 : (preset === "steel_spring" || preset === "wire_rope");
+  const color = isSilicone
+    ? "#38bdf8"
+    : isSpring
+    ? "#e2e8f0"
+    : PRESET_COLORS[preset] ?? PRESET_COLORS.custom;
 
   return (
     <group position={position}>

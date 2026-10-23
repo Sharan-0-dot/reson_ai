@@ -434,6 +434,7 @@ export default function StructureView({
                 position={[0, 0, 0]}
                 restLength={0.012}
                 preset={cData.comp.mount?.preset}
+                kv={cData.comp.mount?.kv}
               />
             </group>
 
