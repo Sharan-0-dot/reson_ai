@@ -4,7 +4,6 @@ import { useMemo, useRef, useEffect } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import type { Design, AnalysisResult, ResponseAt } from "@/lib/types/contract";
-import { toWorld } from "./mapping";
 import { jet } from "./colormap";
 import ComponentModel from "./ComponentModel";
 import MountSpring from "./MountSpring";
@@ -46,6 +45,29 @@ const ghostMaterial = new THREE.MeshBasicMaterial({
   opacity: 0.25,
 });
 
+/** Fallback: generate undeformed mesh nodes directly from design geometry when analysis is null */
+function computeDesignMeshNodes(design: Design): AnalysisResult["mesh_nodes"] {
+  const nodeMap = new Map(design.nodes.map((n) => [n.id, n]));
+  const nodes: AnalysisResult["mesh_nodes"] = [];
+  let id = 0;
+  const nDiv = design.analysis?.n_elements_per_member || 6;
+  for (const m of design.members) {
+    const n1 = nodeMap.get(m.n1);
+    const n2 = nodeMap.get(m.n2);
+    if (!n1 || !n2) continue;
+    for (let k = 0; k <= nDiv; k++) {
+      const frac = k / nDiv;
+      nodes.push({
+        id: `mn_${id++}`,
+        x: n1.x + (n2.x - n1.x) * frac,
+        y: n1.y + (n2.y - n1.y) * frac,
+        member: m.id,
+      });
+    }
+  }
+  return nodes;
+}
+
 /** Build element segments from consecutive mesh nodes per member */
 function buildElements(
   meshNodes: AnalysisResult["mesh_nodes"]
@@ -84,7 +106,13 @@ export default function StructureView({
   onSelectComponent,
   renderComponents = true,
 }: Props) {
-  const meshNodes = useMemo(() => analysis?.mesh_nodes ?? [], [analysis]);
+  const meshNodes = useMemo(() => {
+    if (analysis?.mesh_nodes && analysis.mesh_nodes.length > 0) {
+      return analysis.mesh_nodes;
+    }
+    return computeDesignMeshNodes(design);
+  }, [analysis, design]);
+
   const elements = useMemo(() => buildElements(meshNodes), [meshNodes]);
 
   const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
@@ -128,36 +156,41 @@ export default function StructureView({
 
   // Static/undeformed node coordinates
   const undeformedPositions = useMemo(() => {
-    if (meshNodes.length === 0) {
-      return design.nodes.map((n) => new THREE.Vector3(...toWorld(n.x, n.y)));
-    }
     return meshNodes.map((n) => new THREE.Vector3(n.x, n.y, 0));
-  }, [meshNodes, design.nodes]);
+  }, [meshNodes]);
 
-  // Static ghost structure matrices (calculated once per design)
+  // Static ghost & undeformed structure matrices (calculated when elements or positions change)
   useEffect(() => {
-    if (!ghostInstancedMeshRef.current || !elements.length) return;
-    const mesh = ghostInstancedMeshRef.current;
+    if (!elements.length) return;
 
-    for (let i = 0; i < elements.length; i++) {
-      const el = elements[i];
-      const posA = undeformedPositions[el.a] ?? _tempVecA.set(0, 0, 0);
-      const posB = undeformedPositions[el.b] ?? _tempVecB.set(0, 0, 0);
+    const applyTransforms = (mesh: THREE.InstancedMesh, radius: number) => {
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i];
+        const posA = undeformedPositions[el.a] ?? _tempVecA.set(0, 0, 0);
+        const posB = undeformedPositions[el.b] ?? _tempVecB.set(0, 0, 0);
 
-      _tempMid.addVectors(posA, posB).multiplyScalar(0.5);
-      _tempDir.subVectors(posB, posA);
-      const len = _tempDir.length();
-      if (len > 1e-9) {
-        _tempDir.normalize();
-        _tempQuat.setFromUnitVectors(_yAxis, _tempDir);
-      } else {
-        _tempQuat.identity();
+        _tempMid.addVectors(posA, posB).multiplyScalar(0.5);
+        _tempDir.subVectors(posB, posA);
+        const len = _tempDir.length();
+        if (len > 1e-9) {
+          _tempDir.normalize();
+          _tempQuat.setFromUnitVectors(_yAxis, _tempDir);
+        } else {
+          _tempQuat.identity();
+        }
+        _tempScale.set(radius, Math.max(1e-4, len), radius);
+        _tempMat4.compose(_tempMid, _tempQuat, _tempScale);
+        mesh.setMatrixAt(i, _tempMat4);
       }
-      _tempScale.set(0.0025, Math.max(1e-4, len), 0.0025);
-      _tempMat4.compose(_tempMid, _tempQuat, _tempScale);
-      mesh.setMatrixAt(i, _tempMat4);
+      mesh.instanceMatrix.needsUpdate = true;
+    };
+
+    if (ghostInstancedMeshRef.current) {
+      applyTransforms(ghostInstancedMeshRef.current, 0.0025);
     }
-    mesh.instanceMatrix.needsUpdate = true;
+    if (instancedMeshRef.current) {
+      applyTransforms(instancedMeshRef.current, 0.004);
+    }
   }, [elements, undeformedPositions]);
 
   // Contour colors depend only on RPM and amplitude scale, NOT on time!
@@ -172,8 +205,8 @@ export default function StructureView({
 
       if (isSelected) {
         _tempColor.set("#38bdf8");
-      } else if (!showMesh) {
-        _tempColor.set("#6366f1");
+      } else if (!showMesh || !analysis?.sweep?.node_amp_mm?.length) {
+        _tempColor.set("#4f46e5");
       } else {
         const amp = analysis?.sweep.node_amp_mm?.[rpmIdx]?.[el.a] ?? 0;
         const t = Math.min(1, Math.max(0, amp / ampMax));
@@ -190,8 +223,21 @@ export default function StructureView({
   // Outline LineSegments geometry (built once per mesh)
   const linePositionsBuffer = useMemo(() => {
     if (!elements.length) return null;
-    return new Float32Array(elements.length * 2 * 3);
-  }, [elements.length]);
+    const buf = new Float32Array(elements.length * 2 * 3);
+    for (let i = 0; i < elements.length; i++) {
+      const el = elements[i];
+      const posA = undeformedPositions[el.a] ?? _tempVecA.set(0, 0, 0);
+      const posB = undeformedPositions[el.b] ?? _tempVecB.set(0, 0, 0);
+      const offset = i * 6;
+      buf[offset] = posA.x;
+      buf[offset + 1] = posA.y;
+      buf[offset + 2] = posA.z;
+      buf[offset + 3] = posB.x;
+      buf[offset + 4] = posB.y;
+      buf[offset + 5] = posB.z;
+    }
+    return buf;
+  }, [elements, undeformedPositions]);
 
   // Component metadata
   const componentData = useMemo(() => {
